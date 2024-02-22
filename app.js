@@ -1,48 +1,34 @@
 const express = require('express');
 const { createCanvas, registerFont, loadImage } = require('canvas');
 const { ethers } = require('ethers');
-const path = require('path');   
+const path = require('path');
 
 const app = express();
 const port = 3000;
 
-// Sample function to fetch data from an Ethereum provider
-
+// Ethereum interface
 const iface = new ethers.Interface([
-    "function isIssued(uint256) external returns(tuple(uint256 time, bytes32 tcHash, string actionType, string note)[])"
-  ]);
-  
+    "function isIssued(uint256) external returns(tuple(string actionType, uint256 time, bytes32 tcHash, string note)[])"
+]);
 
-async function getTcHashes(id) {
+async function getTcHashes(id, contractAddress) {
     try {
         const provider = new ethers.JsonRpcProvider('https://polygon-mumbai.g.alchemy.com/v2/1SZikQsiTlSm9VJyxhFIsAfEXQ5RvzsB');
-        const contractAddress = "0xb24d07CDD3bfef153c1cD3d8c9A948dC8379D0e7"
         const encodedData = iface.encodeFunctionData("isIssued", [id]);
-        const result = await provider.call({to: contractAddress, data: encodedData});
-        console.log(result)
-        let decoded = iface.decodeFunctionResult("isIssued", result)
-        console.log(decoded[0])
-        return decoded[0]
+        const result = await provider.call({ to: contractAddress, data: encodedData });
+        let decoded = iface.decodeFunctionResult("isIssued", result);
+        return decoded[0];
     } catch (error) {
         console.error("Error retrieving encrypted data:", error);
+        throw error; // Rethrow the error to be caught by the caller
     }
 }
 
 
-async function getNextContractAddress(walletAddress) {
-    const provider = new ethers.JsonRpcProvider('https://polygon-mumbai.g.alchemy.com/v2/1SZikQsiTlSm9VJyxhFIsAfEXQ5RvzsB');
-        
-    // Get the current nonce for the wallet address
-    const nonce = await provider.getTransactionCount(walletAddress);
-    const rlpEncoded = ethers.encodeRlp([walletAddress, ethers.toBeHex(nonce)]);
-    const contractAddress = ethers.keccak256(rlpEncoded);
-    const address = `0x${contractAddress.substring(26)}`;
-    console.log(address);
-    return address;
-}
-
-async function createImageDimuto(text, id) {
+async function createImageDimuto(id, contract) {
+    let stagesData
     try {
+        stagesData = await getTcHashes(id, contract);
         const fontPath = path.join(__dirname, 'Inter-SemiBold.ttf');
         registerFont(fontPath, { family: 'Inter', weight: 'semibold' });
         console.log('Font registered successfully.');
@@ -50,14 +36,11 @@ async function createImageDimuto(text, id) {
         console.error('Font registration failed:', e);
     }
 
-    const canvasWidth = 842;
-    const canvasHeight = 526;
+    // Calculate everything for a 3000x3000 png
+    const canvasWidth = 3000;
+    const canvasHeight = 3000;
     const canvas = createCanvas(canvasWidth, canvasHeight);
     const context = canvas.getContext('2d');
-
-    // Register a font
-    const fontPath = path.join(__dirname, 'Inter-SemiBold.ttf');
-    registerFont(fontPath, { family: 'Inter', weight: 'semibold' });
 
     // Draw the background
     context.fillStyle = '#FFFFFF';
@@ -65,97 +48,121 @@ async function createImageDimuto(text, id) {
 
     // Draw the logo
     const logo = await loadImage(path.join(__dirname, 'dimuto-logo.png'));
-    context.drawImage(logo, 48, 48, 300, 300 * logo.height / logo.width); // Adjust the size as needed
-
-    
-    // Set text styles
-    context.fillStyle = '#0A3451';
-    context.font = 'semibold 40px Inter';
-
+    const logoWidth = canvasWidth * 0.50; // 25% of canvas width
+    const logoHeight = logo.height * (logoWidth / logo.width);
+    let startingHeight = canvasHeight * 0.1
+    context.drawImage(logo, (canvasWidth - logoWidth) / 2, startingHeight, logoWidth, logoHeight); // Center the logo
+    startingHeight = startingHeight + logoHeight
     // Draw the certificate title
-    context.fillText('Blockchain Digital Certificate', 48, 216); // Adjust positioning as needed
-    
-    // Draw the "Details" section heading
-    context.fillStyle = '#454B4F';
-    context.font = 'semibold 36px Inter';
-    context.fillText('Details', 68, 296); // Adjust positioning as needed
-
-    // Set styles for the top-right information
-    context.fillStyle = '#687076';
-    context.font = 'semibold 14px Inter';
-    context.textAlign = 'right'; // Align text to the right
-    context.fillText('Issued Date: Tuesday, 23 August 2022 at 07:29:02 SGT', canvasWidth - 48, 300 * logo.height / logo.width + 48);
-
-    // Reset alignment for the remaining text
     context.textAlign = 'left';
+    context.fillStyle = '#0A3451';
+    context.font = 'bold 5rem Inter';
+    context.fillText('Blockchain Digital Certificate',canvasWidth * 0.1, startingHeight * 1.5);
+    startingHeight = (startingHeight * 1.5)
 
-    // Draw the content under "Details" section
+    context.textAlign = 'center';
     context.fillStyle = '#454B4F';
-    context.font = 'semibold 24px Inter';
-    
-    context.fillText(`Trade Contract:`, 68, 344); // Adjust positioning as needed
-    context.fillStyle = '#687076';
-    context.font = 'semibold 14px Inter';
-    context.fillText(`${text}`, 68, 372); // Adjust positioning as needed
+    context.font = 'bold 4rem Inter';
+    context.fillText(`Receipt ID #${id}`, canvasWidth / 2, startingHeight * 1.22);
+    startingHeight = (startingHeight * 1.22)
 
-    context.fillStyle = '#454B4F';
-    context.font = 'semibold 24px Inter';
-    context.fillText(`Stage:`, 68, 420); // Adjust positioning as needed
-    context.fillStyle = '#687076';
-    context.font = 'semibold 14px Inter';
-    let display
-    if(id == "initial") {
-        display = `Created trade contract`
-    } else {
-        display = `Updated trade contract`
-    }
-    context.fillText(display, 68, 448); // Adjust positioning as needed
+    context.textAlign = 'left';
+    context.fillStyle = '#0A3451';
+    context.font = 'bold 5rem Inter';
+    context.fillText('Stages', canvasWidth * 0.1, startingHeight * 1.23);
 
-    // Continue adding more text and elements as needed...
+    /// Draw the vertical line to the left of the stages
     context.strokeStyle = '#F7AD1B';
     context.beginPath();
-    // Start point for the line, slightly below "Details"
-    context.moveTo(48, 266);
-    // End point for the line, full width minus padding
-    context.lineTo(48, 458);
-    context.lineWidth = 1.5; // Line weight
+    context.moveTo(canvasWidth * 0.1, startingHeight * 1.4);
+    context.lineTo(canvasWidth * 0.9, startingHeight * 1.4);
+    context.lineWidth = 15; // Make the line thicker for visibility
     context.stroke();
+
+    startingHeight = (startingHeight * 1.5)
+    //let initLineYPosition =  startingHeight
+    
+    // Iterate over stagesData to display each stage
+    context.textAlign = 'left';
+    context.fillStyle = '#687076';
+    context.font = `bold 4em Inter`;
+
+// Draw the stages dynamically
+    stagesData.forEach((item, index) => {
+        startingHeight += 150; // Increment the height for the next stage
+
+        // Draw the blue circle
+        const circleX = canvasWidth * 0.15; // X position for the circle
+        const circleY = startingHeight; // Y position for the circle (aligned with the text)
+        const radius = 50; // Radius of the circle
+        context.beginPath();
+        context.arc(circleX, circleY - (radius / 2), radius, 0, Math.PI * 2, true);
+        context.fillStyle = '#27ABE2';
+        context.fill();
+
+        // Draw the white text (index + 1) inside the circle
+        context.fillStyle = 'white';
+        context.font = `bold 3em Inter`; // Smaller font size for the number inside the circle
+        context.textAlign = 'center'; // Center text inside the circle
+        context.fillText(`${index + 1}`, circleX, circleY);
+
+        // Reset styles for actionType text
+        context.textAlign = 'left';
+        context.fillStyle = '#454B4F';
+        context.font = `bold 4em Inter`;
+        context.fillText(`${item.actionType}`, canvasWidth * 0.2, startingHeight);
+    });
+
+    
 
     return canvas.toBuffer();
 }
+app.get('/dimuto-renderer', async (req, res) => {
+    // Extract 'id' and 'contract' from query parameters
+    const id = req.query.id
+    const contractAddress = req.query.contract;
+
+    // Check if 'id' is a number
+    if (isNaN(id)) {
+        return res.status(400).send('Invalid ID provided.');
+    }
+
+    // Check if 'contractAddress' is provided
+    if (!contractAddress) {
+        return res.status(400).send('No contract address provided.');
+    }
+
+    try {
+        const image = await createImageDimuto(id, contractAddress);
+        res.type('png').send(image);
+    } catch (error) {
+        console.error('Error generating the image:', error);
+        res.status(500).send('Error generating the image.');
+    }
+});
 /*
-// Endpoint for '/initial'
-app.get('/initial', async (req, res) => {
-    const image = await createImage('blue', 'white', 'Initial');
-    res.type('png').send(image);
-});
+app.get('/dimuto-renderer', async (req, res) => {
+    let contractAddress;
+    let id = 0; // Use a query parameter for the id
 
-app.get('/changed', async (req, res) => {
-    const image = await createImage('yellow', 'blue', 'changed');
-    res.type('png').send(image);
-});
+    if (isNaN(id)) {
+        return res.status(400).send('Invalid ID provided.');
+    }
 
-app.get('/dynamic', async (req, res) => {
-    const image = await createImage('blue', 'yellow');
-    res.type('png').send(image);
+    contractAddress = "0x2149FD3F9839CD8233401bccE1DC795fC425C659"; // Use a query parameter for the contract address
+
+    if (!contractAddress) {
+        return res.status(400).send('No contract address provided.');
+    }
+
+    try {
+        const image = await createImageDimuto(id, contractAddress);
+        res.type('png').send(image);
+    } catch (error) {
+        res.status(500).send('Error generating the image.');
+    }
 });
 */
-
-app.get('/dimuto-renderer', async (req, res) => {
-    let id
-    Object.keys(req.query).forEach(key => {
-        id = req.query[key]
-    });
-    const hashesRegistered = getTcHashes(id)
-    const image = await createImageDimuto('TCCO0013500295', id);
-    res.type('png').send(image);
-    //res.send('Query parameters logged to the console.');
-});
-
-
 app.listen(port, () => {
-    console.log(`Server running at http://18.191.204.31:${port}`);
+    console.log(`Server running at http://localhost:${port}`);
 });
-
-//getNextContractAddress("0x417101CFA66aC417840EDF6FA7c3003333BDF114")
-//getTcHashes(0)
